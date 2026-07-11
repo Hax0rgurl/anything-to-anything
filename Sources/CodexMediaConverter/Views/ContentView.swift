@@ -28,7 +28,7 @@ struct ContentView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Codex Media Converter")
+                Text("Anything to Anything")
                     .font(.title2.bold())
                 Text("Video, audio, and photo — in any direction")
                     .foregroundStyle(.secondary)

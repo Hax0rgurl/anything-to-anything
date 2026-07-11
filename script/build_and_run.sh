@@ -2,9 +2,9 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="Codex Media Converter"
+APP_NAME="Anything to Anything"
 PRODUCT_NAME="CodexMediaConverter"
-BUNDLE_ID="com.muse.codex-media-converter"
+BUNDLE_ID="com.muse.anything-to-anything"
 MIN_SYSTEM_VERSION="14.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,6 +17,7 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "Codex Media Converter" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
 if [[ ! -x "$ROOT_DIR/vendor/ffmpeg" || ! -x "$ROOT_DIR/vendor/ffprobe" ]]; then
@@ -31,6 +32,7 @@ cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 cp "$ROOT_DIR/vendor/ffmpeg" "$APP_RESOURCES/ffmpeg"
 cp "$ROOT_DIR/vendor/ffprobe" "$APP_RESOURCES/ffprobe"
+cp "$ROOT_DIR/Assets/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 chmod +x "$APP_RESOURCES/ffmpeg" "$APP_RESOURCES/ffprobe"
 
 cat >"$INFO_PLIST" <<PLIST
@@ -43,8 +45,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.1</string>
-  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleShortVersionString</key><string>1.2</string>
+  <key>CFBundleVersion</key><string>3</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>

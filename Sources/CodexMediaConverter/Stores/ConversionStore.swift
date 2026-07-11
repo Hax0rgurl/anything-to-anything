@@ -17,7 +17,7 @@ final class ConversionStore: ObservableObject {
     @Published var isConverting = false
     @Published var statusMessage = "Drop media here or choose files"
     @Published var outputDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Movies/Codex Conversions", isDirectory: true)
+        .appendingPathComponent("Movies/Anything to Anything", isDirectory: true)
 
     private let service = ConversionService()
     private var conversionTask: Task<Void, Never>?

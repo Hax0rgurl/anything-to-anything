@@ -13,7 +13,7 @@ struct CodexMediaConverterApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("Codex Media Converter", id: "converter") {
+        WindowGroup("Anything to Anything", id: "converter") {
             ContentView()
         }
         .defaultSize(width: 720, height: 760)
