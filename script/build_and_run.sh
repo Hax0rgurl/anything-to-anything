@@ -32,7 +32,7 @@ cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 cp "$ROOT_DIR/vendor/ffmpeg" "$APP_RESOURCES/ffmpeg"
 cp "$ROOT_DIR/vendor/ffprobe" "$APP_RESOURCES/ffprobe"
-cp "$ROOT_DIR/Assets/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
+cp "$ROOT_DIR/Assets/AnythingToAnythingIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 chmod +x "$APP_RESOURCES/ffmpeg" "$APP_RESOURCES/ffprobe"
 
 cat >"$INFO_PLIST" <<PLIST
@@ -45,20 +45,21 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.2</string>
-  <key>CFBundleVersion</key><string>3</string>
+  <key>CFBundleShortVersionString</key><string>1.3</string>
+  <key>CFBundleVersion</key><string>4</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDocumentTypes</key>
-  <array><dict><key>CFBundleTypeName</key><string>Media</string><key>CFBundleTypeRole</key><string>Editor</string><key>LSItemContentTypes</key><array><string>public.movie</string><string>public.audio</string><string>public.image</string></array></dict></array>
+  <array><dict><key>CFBundleTypeName</key><string>Convertible File</string><key>CFBundleTypeRole</key><string>Editor</string><key>LSItemContentTypes</key><array><string>public.content</string></array></dict></array>
 </dict>
 </plist>
 PLIST
 
 /usr/bin/xattr -cr "$APP_BUNDLE"
 /usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
+/usr/bin/xattr -cr "$APP_BUNDLE"
 
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }
 

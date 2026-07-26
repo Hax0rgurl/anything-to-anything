@@ -4,12 +4,14 @@ enum MediaKind: String, CaseIterable, Codable {
     case video = "Video"
     case audio = "Audio"
     case image = "Photo"
+    case document = "Document"
 
     var symbol: String {
         switch self {
         case .video: "film"
         case .audio: "waveform"
         case .image: "photo"
+        case .document: "doc.richtext"
         }
     }
 
@@ -18,6 +20,7 @@ enum MediaKind: String, CaseIterable, Codable {
         if videoExtensions.contains(ext) { return .video }
         if audioExtensions.contains(ext) { return .audio }
         if imageExtensions.contains(ext) { return .image }
+        if documentExtensions.contains(ext) { return .document }
         return nil
     }
 
@@ -29,5 +32,9 @@ enum MediaKind: String, CaseIterable, Codable {
     ]
     private static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "webp", "heic", "heif", "tif", "tiff", "bmp", "gif", "avif"
+    ]
+    private static let documentExtensions: Set<String> = [
+        "txt", "text", "md", "markdown", "html", "htm", "rtf",
+        "doc", "docx", "odt", "wordml", "webarchive", "pdf"
     ]
 }

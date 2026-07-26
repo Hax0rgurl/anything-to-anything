@@ -21,6 +21,7 @@ struct ConversionRequest {
 
 enum ConversionError: LocalizedError {
     case unsupportedInput(String)
+    case unsupportedRoute
     case speedUpRequiresVideo
     case invalidSpeed
     case missingFFmpeg(String)
@@ -31,6 +32,7 @@ enum ConversionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedInput(let ext): "Unsupported input type: .\(ext)"
+        case .unsupportedRoute: "Media and documents cannot be cross-converted. Choose a document output for a document input, or a media output for media."
         case .speedUpRequiresVideo: "Speed Up Tutorial accepts video files only."
         case .invalidSpeed: "Speed must be between 1.25× and 10×."
         case .missingFFmpeg(let tool): "\(tool) is not installed or bundled."
@@ -118,6 +120,8 @@ enum FFmpegCommandBuilder {
                 return ["-filter_complex", "[0:a]showwaves=s=1200x675:mode=line:rate=24:colors=0x7C5CFC[v]", "-map", "[v]", "-t", "10", "-loop", "0"]
             }
             return ["-frames:v", "1"]
+        case .txt, .md, .html, .rtf, .doc, .docx, .odt, .pdf:
+            return []
         }
     }
 

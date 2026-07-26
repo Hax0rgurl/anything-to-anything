@@ -12,9 +12,9 @@ struct DropZoneView: View {
                 .font(.system(size: 40, weight: .medium))
                 .foregroundStyle(isTargeted ? Color.accentColor : .secondary)
             VStack(spacing: 4) {
-                Text("Drop any video, audio, or photo")
+                Text("Drop a video, audio, photo, or document")
                     .font(.headline)
-                Text("Batch conversion is supported")
+                Text("Batch conversion is supported for compatible files")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -40,7 +40,7 @@ struct DropZoneView: View {
             }
             return true
         }
-        .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.movie, .audio, .image], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { addFiles(urls) }
         }
     }

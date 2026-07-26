@@ -30,7 +30,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Anything to Anything")
                     .font(.title2.bold())
-                Text("Video, audio, and photo — in any direction")
+                Text("Video, audio, photo, and document conversion")
                     .foregroundStyle(.secondary)
             }
             Spacer()
