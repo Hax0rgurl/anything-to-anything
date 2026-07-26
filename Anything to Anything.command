@@ -3,11 +3,11 @@ set -u
 setopt NULL_GLOB
 
 SCRIPT_DIR="${0:A:h}"
-OUTPUT_DIR="${CODEX_MEDIA_OUTPUT_DIR:-$HOME/Movies/Codex Conversions}"
+OUTPUT_DIR="${CODEX_MEDIA_OUTPUT_DIR:-$HOME/Movies/Anything to Anything}"
 
 find_ffmpeg() {
   local candidates=(
-    "$SCRIPT_DIR/CodexMediaConverter/vendor/ffmpeg"
+    "$SCRIPT_DIR/AnythingToAnything/vendor/ffmpeg"
     "$SCRIPT_DIR/vendor/ffmpeg"
     "$SCRIPT_DIR/ffmpeg"
     "$HOME/.local/bin/ffmpeg"
@@ -66,7 +66,7 @@ pause_and_exit() {
 
 clear
 print "╭──────────────────────────────────────╮"
-print "│      CODEX MEDIA CONVERTER           │"
+print "│      ANYTHING TO ANYTHING            │"
 print "│  video • audio • photo • any way     │"
 print "╰──────────────────────────────────────╯"
 print
@@ -77,7 +77,7 @@ if ! FFMPEG="$(find_ffmpeg)"; then
     "$SCRIPT_DIR/script/install_ffmpeg.sh" || pause_and_exit 1
     FFMPEG="$(find_ffmpeg)" || pause_and_exit 1
   else
-    print "FFmpeg was not found. Keep this launcher inside the CodexMediaConverter folder."
+    print "FFmpeg was not found. Keep this launcher inside the AnythingToAnything folder."
     pause_and_exit 1
   fi
 fi

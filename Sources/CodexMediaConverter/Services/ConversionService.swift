@@ -2,6 +2,7 @@ import Foundation
 
 actor ConversionService {
     private var process: Process?
+    private let documentService = DocumentConversionService()
 
     func duration(of url: URL) async -> Double? {
         guard let ffprobe = try? FFmpegLocator.locate(.ffprobe) else { return nil }
@@ -22,6 +23,15 @@ actor ConversionService {
     }
 
     func convert(_ request: ConversionRequest, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let sourceKind = MediaKind.detect(from: request.sourceURL)
+        if sourceKind == .document, request.outputFormat.kind == .document {
+            try await documentService.convert(request, progress: progress)
+            return
+        }
+        if sourceKind == .document || request.outputFormat.kind == .document {
+            throw ConversionError.unsupportedRoute
+        }
+
         let ffmpeg = try FFmpegLocator.locate(.ffmpeg)
         let sourceDuration = await duration(of: request.sourceURL) ?? 0
         let expectedDuration = sourceDuration * request.expectedDurationScale
@@ -78,5 +88,6 @@ actor ConversionService {
 
     func cancel() {
         process?.terminate()
+        Task { await documentService.cancel() }
     }
 }

@@ -17,14 +17,15 @@ final class ConversionStore: ObservableObject {
     @Published var isConverting = false
     @Published var statusMessage = "Drop media here or choose files"
     @Published var outputDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Movies/Codex Conversions", isDirectory: true)
+        .appendingPathComponent("Movies/Anything to Anything", isDirectory: true)
 
     private let service = ConversionService()
     private var conversionTask: Task<Void, Never>?
 
     var validItemCount: Int {
         switch workflow {
-        case .formatConversion: items.filter { $0.sourceKind != nil }.count
+        case .formatConversion:
+            items.filter { isValidForSelectedWorkflow($0, workflow: .formatConversion) }.count
         case .speedUp: items.filter { $0.sourceKind == .video }.count
         }
     }
@@ -138,8 +139,14 @@ final class ConversionStore: ObservableObject {
 
     private func isValidForSelectedWorkflow(_ item: ConversionItem, workflow: ConversionWorkflow) -> Bool {
         switch workflow {
-        case .formatConversion: item.sourceKind != nil
-        case .speedUp: item.sourceKind == .video
+        case .formatConversion:
+            guard let sourceKind = item.sourceKind else { return false }
+            if outputFormat.kind == .document {
+                return sourceKind == .document
+            }
+            return sourceKind != .document
+        case .speedUp:
+            return item.sourceKind == .video
         }
     }
 
