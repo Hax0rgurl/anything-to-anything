@@ -2,7 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERIFY_BINARY="$(mktemp -d)/anything-to-anything-verify"
+VERIFY_DIR="$(mktemp -d)"
+VERIFY_BINARY="$VERIFY_DIR/anything-to-anything-verify"
+FFMPEG_PATH="${FFMPEG_PATH:-$ROOT_DIR/vendor/ffmpeg}"
+FFPROBE_PATH="${FFPROBE_PATH:-$ROOT_DIR/vendor/ffprobe}"
+trap 'rm -rf "$VERIFY_DIR"' EXIT
 
 xcrun swiftc \
   -swift-version 5 \
@@ -13,4 +17,4 @@ xcrun swiftc \
   "$ROOT_DIR/script/verify.swift" \
   -o "$VERIFY_BINARY"
 
-"$VERIFY_BINARY" "$ROOT_DIR/vendor/ffmpeg" "$ROOT_DIR/vendor/ffprobe"
+"$VERIFY_BINARY" "$FFMPEG_PATH" "$FFPROBE_PATH"
