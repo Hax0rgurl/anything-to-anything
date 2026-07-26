@@ -13,4 +13,4 @@ xcrun swiftc \
   "$ROOT_DIR/script/verify.swift" \
   -o "$VERIFY_BINARY"
 
-"$VERIFY_BINARY"
+"$VERIFY_BINARY" "$ROOT_DIR/vendor/ffmpeg" "$ROOT_DIR/vendor/ffprobe"
