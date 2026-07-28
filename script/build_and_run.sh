@@ -10,11 +10,15 @@ MIN_SYSTEM_VERSION="14.0"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
-APP_CONTENTS="$APP_BUNDLE/Contents"
+STAGING_DIR="$(mktemp -d)"
+STAGED_APP="$STAGING_DIR/$APP_NAME.app"
+APP_CONTENTS="$STAGED_APP/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
-APP_BINARY="$APP_MACOS/$APP_NAME"
+STAGED_BINARY="$APP_MACOS/$APP_NAME"
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+trap 'rm -rf "$STAGING_DIR"' EXIT
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -x "Codex Media Converter" >/dev/null 2>&1 || true
@@ -26,10 +30,9 @@ fi
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$PRODUCT_NAME"
 
-rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
-cp "$BUILD_BINARY" "$APP_BINARY"
-chmod +x "$APP_BINARY"
+cp "$BUILD_BINARY" "$STAGED_BINARY"
+chmod +x "$STAGED_BINARY"
 cp "$ROOT_DIR/vendor/ffmpeg" "$APP_RESOURCES/ffmpeg"
 cp "$ROOT_DIR/vendor/ffprobe" "$APP_RESOURCES/ffprobe"
 cp "$ROOT_DIR/Assets/AnythingToAnythingIcon.icns" "$APP_RESOURCES/AppIcon.icns"
@@ -57,9 +60,16 @@ cat >"$INFO_PLIST" <<PLIST
 </plist>
 PLIST
 
+/usr/bin/xattr -cr "$STAGED_APP"
+/usr/bin/codesign --force --deep --sign - "$STAGED_APP" >/dev/null
+/usr/bin/xattr -cr "$STAGED_APP"
+/usr/bin/codesign --verify --deep --strict "$STAGED_APP"
+
+mkdir -p "$DIST_DIR"
+rm -rf "$APP_BUNDLE"
+COPYFILE_DISABLE=1 /usr/bin/ditto "$STAGED_APP" "$APP_BUNDLE"
 /usr/bin/xattr -cr "$APP_BUNDLE"
-/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
-/usr/bin/xattr -cr "$APP_BUNDLE"
+/usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }
 
