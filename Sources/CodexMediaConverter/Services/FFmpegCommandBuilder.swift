@@ -5,12 +5,20 @@ struct ConversionRequest {
     let outputURL: URL
     let outputFormat: OutputFormat
     let speedMultiplier: Double?
+    let sourceKindOverride: MediaKind?
 
-    init(sourceURL: URL, outputURL: URL, outputFormat: OutputFormat, speedMultiplier: Double? = nil) {
+    init(
+        sourceURL: URL,
+        outputURL: URL,
+        outputFormat: OutputFormat,
+        speedMultiplier: Double? = nil,
+        sourceKindOverride: MediaKind? = nil
+    ) {
         self.sourceURL = sourceURL
         self.outputURL = outputURL
         self.outputFormat = outputFormat
         self.speedMultiplier = speedMultiplier
+        self.sourceKindOverride = sourceKindOverride
     }
 
     var expectedDurationScale: Double {
@@ -24,6 +32,8 @@ enum ConversionError: LocalizedError {
     case unsupportedRoute
     case speedUpRequiresVideo
     case invalidSpeed
+    case missingAudioTrack
+    case mediaInspectionFailed(String)
     case missingFFmpeg(String)
     case launchFailed(String)
     case conversionFailed(String)
@@ -35,6 +45,9 @@ enum ConversionError: LocalizedError {
         case .unsupportedRoute: "Media and documents cannot be cross-converted. Choose a document output for a document input, or a media output for media."
         case .speedUpRequiresVideo: "Speed Up Tutorial accepts video files only."
         case .invalidSpeed: "Speed must be between 1.25× and 10×."
+        case .missingAudioTrack: "This movie has no audio track to extract."
+        case .mediaInspectionFailed(let name):
+            "Could not inspect the audio and video streams in \(name)."
         case .missingFFmpeg(let tool): "\(tool) is not installed or bundled."
         case .launchFailed(let message): "Could not start conversion: \(message)"
         case .conversionFailed(let message): message
@@ -45,7 +58,9 @@ enum ConversionError: LocalizedError {
 
 enum FFmpegCommandBuilder {
     static func arguments(for request: ConversionRequest) throws -> [String] {
-        guard let sourceKind = MediaKind.detect(from: request.sourceURL) else {
+        guard let sourceKind = request.sourceKindOverride
+            ?? MediaKind.detect(from: request.sourceURL)
+        else {
             throw ConversionError.unsupportedInput(request.sourceURL.pathExtension)
         }
 
@@ -74,7 +89,11 @@ enum FFmpegCommandBuilder {
         if sourceKind == .image && request.outputFormat.kind == .video {
             args += ["-loop", "1", "-framerate", "30", "-i", request.sourceURL.path, "-t", "5"]
         } else if sourceKind == .image && request.outputFormat.kind == .audio {
-            args += ["-i", request.sourceURL.path, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "5", "-map", "1:a:0"]
+            args += [
+                "-i", request.sourceURL.path,
+                "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+                "-t", "5"
+            ]
         } else {
             args += ["-i", request.sourceURL.path]
         }
@@ -87,23 +106,56 @@ enum FFmpegCommandBuilder {
     private static func codecArguments(sourceKind: MediaKind, format: OutputFormat) -> [String] {
         switch format {
         case .mp4:
-            if sourceKind == .audio { return waveformVideo(codec: ["-c:v", "libx264", "-pix_fmt", "yuv420p"], audio: ["-c:a", "aac", "-b:a", "192k"]) }
+            if sourceKind == .audio {
+                return visualizerVideo(
+                    video: [
+                        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                        "-pix_fmt", "yuv420p"
+                    ],
+                    audio: ["-c:a", "aac", "-b:a", "192k"],
+                    extras: ["-movflags", "+faststart"]
+                )
+            }
             return evenDimensions + ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
         case .mov:
-            if sourceKind == .audio { return waveformVideo(codec: ["-c:v", "libx264", "-pix_fmt", "yuv420p"], audio: ["-c:a", "aac", "-b:a", "192k"]) }
+            if sourceKind == .audio {
+                return visualizerVideo(
+                    video: [
+                        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+                        "-pix_fmt", "yuv420p"
+                    ],
+                    audio: ["-c:a", "aac", "-b:a", "192k"]
+                )
+            }
             return evenDimensions + ["-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"]
         case .webm:
-            if sourceKind == .audio { return waveformVideo(codec: ["-c:v", "libvpx-vp9", "-crf", "31", "-b:v", "0"], audio: ["-c:a", "libopus", "-b:a", "160k"]) }
+            if sourceKind == .audio {
+                return visualizerVideo(
+                    video: ["-c:v", "libvpx-vp9", "-crf", "31", "-b:v", "0"],
+                    audio: ["-c:a", "libopus", "-b:a", "160k"]
+                )
+            }
             return evenDimensions + ["-c:v", "libvpx-vp9", "-crf", "31", "-b:v", "0", "-c:a", "libopus", "-b:a", "160k"]
         case .mkv:
-            if sourceKind == .audio { return waveformVideo(codec: ["-c:v", "libx264", "-crf", "20"], audio: ["-c:a", "aac", "-b:a", "192k"]) }
+            if sourceKind == .audio {
+                return visualizerVideo(
+                    video: ["-c:v", "libx264", "-preset", "medium", "-crf", "20"],
+                    audio: ["-c:a", "aac", "-b:a", "192k"]
+                )
+            }
             return evenDimensions + ["-c:v", "libx264", "-crf", "20", "-c:a", "aac", "-b:a", "192k"]
-        case .mp3: return ["-vn", "-c:a", "libmp3lame", "-q:a", "2"]
-        case .m4a: return ["-vn", "-c:a", "aac", "-b:a", "256k"]
-        case .wav: return ["-vn", "-c:a", "pcm_s24le"]
-        case .flac: return ["-vn", "-c:a", "flac"]
-        case .ogg: return ["-vn", "-c:a", "libvorbis", "-q:a", "6"]
-        case .opus: return ["-vn", "-c:a", "libopus", "-b:a", "160k"]
+        case .mp3:
+            return audioOnly(sourceKind: sourceKind, codec: ["-c:a", "libmp3lame", "-q:a", "2"])
+        case .m4a:
+            return audioOnly(sourceKind: sourceKind, codec: ["-c:a", "aac", "-b:a", "256k"])
+        case .wav:
+            return audioOnly(sourceKind: sourceKind, codec: ["-c:a", "pcm_s24le"])
+        case .flac:
+            return audioOnly(sourceKind: sourceKind, codec: ["-c:a", "flac"])
+        case .ogg:
+            return audioOnly(sourceKind: sourceKind, codec: ["-c:a", "libvorbis", "-q:a", "6"])
+        case .opus:
+            return audioOnly(sourceKind: sourceKind, codec: ["-c:a", "libopus", "-b:a", "160k"])
         case .jpg:
             return imageArguments(sourceKind: sourceKind, codec: ["-q:v", "2"])
         case .png:
@@ -125,8 +177,32 @@ enum FFmpegCommandBuilder {
         }
     }
 
-    private static func waveformVideo(codec: [String], audio: [String]) -> [String] {
-        ["-filter_complex", "[0:a]showwaves=s=1280x720:mode=line:rate=30:colors=0x7C5CFC[v]", "-map", "[v]", "-map", "0:a"] + codec + audio + ["-shortest"]
+    private static func visualizerVideo(
+        video: [String],
+        audio: [String],
+        extras: [String] = []
+    ) -> [String] {
+        [
+            "-filter_complex",
+            "[0:a:0]showwaves=s=1280x720:mode=cline:rate=30:"
+                + "colors=0x00E5FF|0xFF2BD6:scale=log:draw=full,"
+                + "drawgrid=w=160:h=90:t=1:c=0x39215E@0.45,"
+                + "drawbox=x=0:y=359:w=1280:h=2:color=0xFF2BD6@0.65:t=fill[v]",
+            "-map", "[v]",
+            "-map", "0:a:0",
+            "-map_metadata", "0",
+            "-shortest"
+        ] + video + audio + extras
+    }
+
+    private static func audioOnly(sourceKind: MediaKind, codec: [String]) -> [String] {
+        let audioInputIndex = sourceKind == .image ? 1 : 0
+        return [
+            "-map", "\(audioInputIndex):a:0",
+            "-vn",
+            "-sn",
+            "-dn"
+        ] + codec
     }
 
     private static var evenDimensions: [String] {

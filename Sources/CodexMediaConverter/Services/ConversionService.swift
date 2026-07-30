@@ -1,6 +1,11 @@
 import Foundation
 
 actor ConversionService {
+    private struct StreamInventory {
+        let hasAudio: Bool
+        let hasMotionVideo: Bool
+    }
+
     private var process: Process?
     private let documentService = DocumentConversionService()
 
@@ -23,14 +28,44 @@ actor ConversionService {
     }
 
     func convert(_ request: ConversionRequest, progress: @escaping @Sendable (Double) -> Void) async throws {
-        let sourceKind = MediaKind.detect(from: request.sourceURL)
-        if sourceKind == .document, request.outputFormat.kind == .document {
+        let detectedKind = MediaKind.detect(from: request.sourceURL)
+        if detectedKind == .document, request.outputFormat.kind == .document {
             try await documentService.convert(request, progress: progress)
             return
         }
-        if sourceKind == .document || request.outputFormat.kind == .document {
+        if detectedKind == .document || request.outputFormat.kind == .document {
             throw ConversionError.unsupportedRoute
         }
+
+        let sourceInventory: StreamInventory?
+        if detectedKind == .video || detectedKind == .audio {
+            sourceInventory = try await streamInventory(in: request.sourceURL)
+        } else {
+            sourceInventory = nil
+        }
+        let effectiveSourceKind: MediaKind?
+        if sourceInventory?.hasMotionVideo == true {
+            effectiveSourceKind = .video
+        } else if sourceInventory?.hasAudio == true {
+            effectiveSourceKind = .audio
+        } else {
+            effectiveSourceKind = detectedKind
+        }
+
+        if request.outputFormat.kind == .audio,
+           detectedKind != .image,
+           let sourceInventory,
+           !sourceInventory.hasAudio {
+            throw ConversionError.missingAudioTrack
+        }
+
+        let routedRequest = ConversionRequest(
+            sourceURL: request.sourceURL,
+            outputURL: request.outputURL,
+            outputFormat: request.outputFormat,
+            speedMultiplier: request.speedMultiplier,
+            sourceKindOverride: effectiveSourceKind
+        )
 
         let ffmpeg = try FFmpegLocator.locate(.ffmpeg)
         let sourceDuration = await duration(of: request.sourceURL) ?? 0
@@ -39,7 +74,7 @@ actor ConversionService {
         let progressPipe = Pipe()
         let errorPipe = Pipe()
         task.executableURL = ffmpeg
-        task.arguments = try FFmpegCommandBuilder.arguments(for: request)
+        task.arguments = try FFmpegCommandBuilder.arguments(for: routedRequest)
         task.standardOutput = progressPipe
         task.standardError = errorPipe
         process = task
@@ -83,11 +118,85 @@ actor ConversionService {
             let useful = log.split(separator: "\n").suffix(8).joined(separator: "\n")
             throw ConversionError.conversionFailed(useful.isEmpty ? "FFmpeg exited with code \(task.terminationStatus)." : useful)
         }
+        if request.outputFormat.kind == .audio || request.outputFormat.kind == .video {
+            let outputInventory = try await streamInventory(in: request.outputURL)
+            switch request.outputFormat.kind {
+            case .audio:
+                guard outputInventory.hasAudio, !outputInventory.hasMotionVideo else {
+                    throw ConversionError.conversionFailed(
+                        "The converted file did not contain a valid audio-only stream."
+                    )
+                }
+            case .video:
+                guard outputInventory.hasMotionVideo else {
+                    throw ConversionError.conversionFailed(
+                        "The converted file did not contain a playable video stream."
+                    )
+                }
+                if effectiveSourceKind == .audio, !outputInventory.hasAudio {
+                    throw ConversionError.conversionFailed(
+                        "The visualizer video was created without the original audio."
+                    )
+                }
+            case .image, .document:
+                break
+            }
+        }
         progress(1)
     }
 
     func cancel() {
         process?.terminate()
         Task { await documentService.cancel() }
+    }
+
+    private func streamInventory(in url: URL) async throws -> StreamInventory {
+        let ffprobe = try FFmpegLocator.locate(.ffprobe)
+        let task = Process()
+        let output = Pipe()
+        task.executableURL = ffprobe
+        task.arguments = [
+            "-v", "error",
+            "-show_entries", "stream=codec_type:stream_disposition=attached_pic",
+            "-of", "json",
+            url.path
+        ]
+        task.standardOutput = output
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else {
+                throw ConversionError.mediaInspectionFailed(url.lastPathComponent)
+            }
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let streams = object["streams"] as? [[String: Any]]
+            else {
+                throw ConversionError.mediaInspectionFailed(url.lastPathComponent)
+            }
+            var hasAudio = false
+            var hasMotionVideo = false
+            for stream in streams {
+                switch stream["codec_type"] as? String {
+                case "audio":
+                    hasAudio = true
+                case "video":
+                    let disposition = stream["disposition"] as? [String: Any]
+                    let attachedPicture = disposition?["attached_pic"] as? Int ?? 0
+                    if attachedPicture == 0 {
+                        hasMotionVideo = true
+                    }
+                default:
+                    continue
+                }
+            }
+            return StreamInventory(hasAudio: hasAudio, hasMotionVideo: hasMotionVideo)
+        } catch {
+            if let conversionError = error as? ConversionError {
+                throw conversionError
+            }
+            throw ConversionError.mediaInspectionFailed(url.lastPathComponent)
+        }
     }
 }

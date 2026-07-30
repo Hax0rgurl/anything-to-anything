@@ -36,6 +36,22 @@ struct FormatPickerView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
+
+                if targetKind == .audio {
+                    Label(
+                        "Movie inputs extract their first audio track; the video stream is removed.",
+                        systemImage: "waveform.badge.minus"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else if targetKind == .video {
+                    Label(
+                        "Audio inputs become 1280×720 neon visualizer movies with the original audio.",
+                        systemImage: "waveform.path.ecg.rectangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             } else {
                 speedControls
             }

@@ -14,19 +14,27 @@ enum VerificationFailure: Error, CustomStringConvertible {
 @main
 enum VerifyAnythingToAnything {
     static func main() async throws {
-        guard CommandLine.arguments.count == 3 else {
-            throw VerificationFailure.failed("Expected ffmpeg and ffprobe paths.")
+        guard CommandLine.arguments.count == 3 || CommandLine.arguments.count == 4 else {
+            throw VerificationFailure.failed(
+                "Expected ffmpeg and ffprobe paths, plus optional --media-only."
+            )
         }
         let ffmpeg = URL(fileURLWithPath: CommandLine.arguments[1])
         let ffprobe = URL(fileURLWithPath: CommandLine.arguments[2])
+        let mediaOnly = CommandLine.arguments.dropFirst(3).first == "--media-only"
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("AnythingToAnythingVerify-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        try await verifyDocumentMatrix(in: root)
+        if !mediaOnly {
+            try await verifyDocumentMatrix(in: root)
+        }
         try verifyMediaMatrix(in: root, ffmpeg: ffmpeg, ffprobe: ffprobe)
-        print("Anything to Anything full verification passed")
+        try await verifyMovieAudioRoutes(in: root, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        print(mediaOnly
+            ? "Anything to Anything media verification passed"
+            : "Anything to Anything full verification passed")
     }
 
     private static func verifyDocumentMatrix(in root: URL) async throws {
@@ -209,6 +217,266 @@ enum VerifyAnythingToAnything {
         try check(!speedStreams.contains("audio"), "Speed-up output still contains audio.")
         try check(routeCount == sources.count * formats.count, "The media route matrix was incomplete.")
         print("Verified \(routeCount) media conversion routes plus speed-up audio removal")
+    }
+
+    private static func verifyMovieAudioRoutes(
+        in root: URL,
+        ffmpeg: URL,
+        ffprobe: URL
+    ) async throws {
+        let folder = root.appendingPathComponent("MovieAudioRoutes", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let movie = folder.appendingPathComponent("movie-with-audio.mov")
+        let quietAudio = folder.appendingPathComponent("quiet-audio.m4a")
+        let silentAudio = folder.appendingPathComponent("silent-audio.m4a")
+        let videoOnly = folder.appendingPathComponent("video-without-audio.mov")
+        let audioOnlyMP4 = folder.appendingPathComponent("audio-inside-mp4.mp4")
+
+        _ = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=6.4",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=6.4",
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-ac", "2",
+            "-shortest", movie.path
+        ])
+        _ = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=523:sample_rate=48000:duration=6.4",
+            "-af", "volume=0.001",
+            "-c:a", "aac", "-b:a", "192k", "-ac", "2",
+            quietAudio.path
+        ])
+        _ = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+            "-t", "6.4",
+            "-c:a", "aac", "-b:a", "192k",
+            silentAudio.path
+        ])
+        _ = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            videoOnly.path
+        ])
+        _ = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=659:sample_rate=48000:duration=2.4",
+            "-vn", "-c:a", "aac", "-ac", "2",
+            "-f", "mp4", audioOnlyMP4.path
+        ])
+
+        let service = ConversionService()
+        let movieDuration = try probe(movie, with: ffprobe).duration
+        for format in OutputFormat.formats(for: .audio) {
+            let output = folder.appendingPathComponent("movie-to-\(format.fileExtension).\(format.fileExtension)")
+            try await service.convert(
+                ConversionRequest(
+                    sourceURL: movie,
+                    outputURL: output,
+                    outputFormat: format
+                ),
+                progress: { _ in }
+            )
+            let result = try probe(output, with: ffprobe)
+            try check(result.audioStreamCount == 1, "MOV to \(format.title) lost its audio.")
+            try check(result.videoStreamCount == 0, "MOV to \(format.title) retained a video stream.")
+            try check(
+                abs(result.duration - movieDuration) <= 0.2,
+                "MOV to \(format.title) changed duration by more than 0.2 seconds."
+            )
+        }
+
+        let quietDuration = try probe(quietAudio, with: ffprobe).duration
+        var quietMP4: URL?
+        for format in OutputFormat.formats(for: .video) {
+            let output = folder.appendingPathComponent("quiet-audio-to-\(format.fileExtension).\(format.fileExtension)")
+            try await service.convert(
+                ConversionRequest(
+                    sourceURL: quietAudio,
+                    outputURL: output,
+                    outputFormat: format
+                ),
+                progress: { _ in }
+            )
+            let result = try probe(output, with: ffprobe)
+            try check(result.videoStreamCount == 1, "Audio to \(format.title) has no video.")
+            try check(result.audioStreamCount == 1, "Audio to \(format.title) lost the original audio.")
+            try check(
+                result.width == 1_280 && result.height == 720,
+                "Audio to \(format.title) is not 1280×720."
+            )
+            try check(
+                abs(result.duration - quietDuration) <= 0.2,
+                "Audio to \(format.title) changed duration by more than 0.2 seconds."
+            )
+            let maximumLuma = try visibleFrameMaximumLuma(
+                output,
+                at: 2,
+                ffmpeg: ffmpeg
+            )
+            try check(
+                maximumLuma > 40,
+                "Audio to \(format.title) still renders as a black screen."
+            )
+            if format == .mp4 {
+                quietMP4 = output
+            }
+        }
+
+        let silentVideo = folder.appendingPathComponent("silent-reference.mp4")
+        try await service.convert(
+            ConversionRequest(
+                sourceURL: silentAudio,
+                outputURL: silentVideo,
+                outputFormat: .mp4
+            ),
+            progress: { _ in }
+        )
+        guard let quietMP4 else {
+            throw VerificationFailure.failed("Quiet MP4 visualizer fixture was not created.")
+        }
+        let quietFrame = try decodedGrayFrame(
+            quietMP4,
+            at: 2,
+            name: "quiet",
+            folder: folder,
+            ffmpeg: ffmpeg
+        )
+        let silentFrame = try decodedGrayFrame(
+            silentVideo,
+            at: 2,
+            name: "silent",
+            folder: folder,
+            ffmpeg: ffmpeg
+        )
+        try check(
+            quietFrame.count == silentFrame.count && !quietFrame.isEmpty,
+            "Visualizer comparison frames were incomplete."
+        )
+        let audioDependentPixelCount = zip(quietFrame, silentFrame).reduce(into: 0) {
+            if abs(Int($1.0) - Int($1.1)) > 8 {
+                $0 += 1
+            }
+        }
+        try check(
+            audioDependentPixelCount > 5_000,
+            "Quiet audio did not draw an audio-dependent waveform above the static grid."
+        )
+
+        let reclassifiedOutput = folder.appendingPathComponent("audio-only-mp4-visualizer.mp4")
+        try await service.convert(
+            ConversionRequest(
+                sourceURL: audioOnlyMP4,
+                outputURL: reclassifiedOutput,
+                outputFormat: .mp4
+            ),
+            progress: { _ in }
+        )
+        let reclassified = try probe(reclassifiedOutput, with: ffprobe)
+        try check(
+            reclassified.videoStreamCount == 1 && reclassified.audioStreamCount == 1,
+            "Audio-only MP4 was not reclassified into an audio visualizer movie."
+        )
+
+        let impossibleOutput = folder.appendingPathComponent("video-only.mp3")
+        do {
+            try await service.convert(
+                ConversionRequest(
+                    sourceURL: videoOnly,
+                    outputURL: impossibleOutput,
+                    outputFormat: .mp3
+                ),
+                progress: { _ in }
+            )
+            throw VerificationFailure.failed("Video without audio incorrectly reported success.")
+        } catch ConversionError.missingAudioTrack {
+            try check(
+                !FileManager.default.fileExists(atPath: impossibleOutput.path),
+                "Missing-audio preflight left an invalid output behind."
+            )
+        }
+
+        print("Verified MOV audio extraction, visible quiet-audio movies, and stream-aware routing")
+    }
+
+    private struct MediaProbe {
+        let audioStreamCount: Int
+        let videoStreamCount: Int
+        let width: Int
+        let height: Int
+        let duration: Double
+    }
+
+    private static func probe(_ url: URL, with ffprobe: URL) throws -> MediaProbe {
+        let raw = try run(ffprobe, [
+            "-v", "error",
+            "-show_entries", "stream=codec_type,width,height:format=duration",
+            "-of", "json",
+            url.path
+        ])
+        guard let data = raw.data(using: .utf8),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let streams = object["streams"] as? [[String: Any]],
+              let format = object["format"] as? [String: Any],
+              let durationText = format["duration"] as? String,
+              let duration = Double(durationText)
+        else {
+            throw VerificationFailure.failed("FFprobe returned invalid JSON for \(url.lastPathComponent).")
+        }
+        let videoStreams = streams.filter { $0["codec_type"] as? String == "video" }
+        return MediaProbe(
+            audioStreamCount: streams.filter { $0["codec_type"] as? String == "audio" }.count,
+            videoStreamCount: videoStreams.count,
+            width: videoStreams.first?["width"] as? Int ?? 0,
+            height: videoStreams.first?["height"] as? Int ?? 0,
+            duration: duration
+        )
+    }
+
+    private static func visibleFrameMaximumLuma(
+        _ url: URL,
+        at seconds: Double,
+        ffmpeg: URL
+    ) throws -> Double {
+        let metadata = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error",
+            "-ss", String(seconds),
+            "-i", url.path,
+            "-frames:v", "1",
+            "-vf", "signalstats,metadata=print:file=-",
+            "-f", "null", "-"
+        ])
+        guard let line = metadata.split(separator: "\n").first(where: {
+            $0.hasPrefix("lavfi.signalstats.YMAX=")
+        }), let value = Double(line.split(separator: "=").last ?? "") else {
+            throw VerificationFailure.failed(
+                "Could not measure visualizer luma for \(url.lastPathComponent)."
+            )
+        }
+        return value
+    }
+
+    private static func decodedGrayFrame(
+        _ url: URL,
+        at seconds: Double,
+        name: String,
+        folder: URL,
+        ffmpeg: URL
+    ) throws -> Data {
+        let output = folder.appendingPathComponent("\(name)-frame.gray")
+        _ = try run(ffmpeg, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", String(seconds),
+            "-i", url.path,
+            "-frames:v", "1",
+            "-pix_fmt", "gray",
+            "-f", "rawvideo",
+            output.path
+        ])
+        return try Data(contentsOf: output)
     }
 
     @discardableResult

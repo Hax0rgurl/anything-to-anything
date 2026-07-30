@@ -6,6 +6,7 @@ APP_NAME="Anything to Anything"
 PRODUCT_NAME="CodexMediaConverter"
 BUNDLE_ID="com.muse.anything-to-anything"
 MIN_SYSTEM_VERSION="14.0"
+BUILD_CONFIGURATION="${ANYTHING_TO_ANYTHING_BUILD_CONFIGURATION:-release}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -20,15 +21,17 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-pkill -x "Codex Media Converter" >/dev/null 2>&1 || true
+if [[ "$MODE" != "--build-only" && "$MODE" != "build-only" ]]; then
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -x "Codex Media Converter" >/dev/null 2>&1 || true
+fi
 
 cd "$ROOT_DIR"
 if [[ ! -x "$ROOT_DIR/vendor/ffmpeg" || ! -x "$ROOT_DIR/vendor/ffprobe" ]]; then
   "$ROOT_DIR/script/install_ffmpeg.sh"
 fi
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$PRODUCT_NAME"
+swift build -c "$BUILD_CONFIGURATION"
+BUILD_BINARY="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)/$PRODUCT_NAME"
 
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$STAGED_BINARY"
@@ -48,8 +51,8 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.3</string>
-  <key>CFBundleVersion</key><string>4</string>
+  <key>CFBundleShortVersionString</key><string>1.4</string>
+  <key>CFBundleVersion</key><string>5</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -67,7 +70,13 @@ PLIST
 
 mkdir -p "$DIST_DIR"
 rm -rf "$APP_BUNDLE"
-COPYFILE_DISABLE=1 /usr/bin/ditto "$STAGED_APP" "$APP_BUNDLE"
+COPYFILE_DISABLE=1 /usr/bin/ditto \
+  --norsrc \
+  --noextattr \
+  --noqtn \
+  --noacl \
+  "$STAGED_APP" \
+  "$APP_BUNDLE"
 /usr/bin/xattr -cr "$APP_BUNDLE"
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
